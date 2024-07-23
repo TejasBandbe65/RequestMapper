@@ -1,0 +1,12 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "KeyVaultUrl": "https://kv-apimassignments.vault.azure.net/",
+    "SecretsRefreshInterval": 1440,
+    "SQLConnectionString": "kvs-SQLConnectionString",
+    "BlobConnectionString": "kvs-BlobConnectionString",
+    "ServiceBusConnectionString": "kvs-ServiceBusConnectionString"
+  }
+}
