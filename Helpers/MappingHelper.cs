@@ -1,6 +1,7 @@
 ﻿using RequestMapper.Models;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Data;
 using System.Linq;
 using System.Text;
@@ -15,6 +16,7 @@ namespace RequestMapper.Helpers
         {
             try
             {
+                dtSalesTransactions.Columns.Add("SalesTransactionId", Type.GetType("System.Int32"));
                 dtSalesTransactions.Columns.Add("SiteId", Type.GetType("System.Int32"));
                 dtSalesTransactions.Columns.Add("SaleTimeStamp", Type.GetType("System.DateTime"));
                 dtSalesTransactions.Columns.Add("POSId", Type.GetType("System.String"));
@@ -27,7 +29,9 @@ namespace RequestMapper.Helpers
                 dtSalesTransactions.Columns.Add("OnlineProgramName", Type.GetType("System.String"));
                 dtSalesTransactions.Columns.Add("PostingDate", Type.GetType("System.DateTime"));
                 dtSalesTransactions.Columns.Add("CorrelationId", Type.GetType("System.String"));
+                dtSalesTransactions.PrimaryKey = new DataColumn[] { dtSalesTransactions.Columns["SalesTransactionId"] };
 
+                dtProducts.Columns.Add("ProductId", Type.GetType("System.Int32"));
                 dtProducts.Columns.Add("SiteId", Type.GetType("System.Int32"));
                 dtProducts.Columns.Add("SaleTimeStamp", Type.GetType("System.DateTime"));
                 dtProducts.Columns.Add("POSId", Type.GetType("System.String"));
@@ -47,7 +51,10 @@ namespace RequestMapper.Helpers
                 dtProducts.Columns.Add("CostValueEx", Type.GetType("System.Decimal"));
                 dtProducts.Columns.Add("CostGSTRate", Type.GetType("System.Decimal"));
                 dtProducts.Columns.Add("LoyaltyPoints", Type.GetType("System.Decimal"));
+                dtProducts.Columns.Add("SalesTransactionId", Type.GetType("System.Int32"));
+                dtProducts.PrimaryKey = new DataColumn[] { dtProducts.Columns["ProductId"] };
 
+                dtProductProms.Columns.Add("PKProductPromId", Type.GetType("System.Int32"));
                 dtProductProms.Columns.Add("SiteId", Type.GetType("System.Int32"));
                 dtProductProms.Columns.Add("SaleTimeStamp", Type.GetType("System.DateTime"));
                 dtProductProms.Columns.Add("POSId", Type.GetType("System.String"));
@@ -57,7 +64,10 @@ namespace RequestMapper.Helpers
                 dtProductProms.Columns.Add("ProductPromId", Type.GetType("System.String"));
                 dtProductProms.Columns.Add("ProductPromValueInc", Type.GetType("System.Decimal"));
                 dtProductProms.Columns.Add("LoyaltyProgramName", Type.GetType("System.String"));
+                dtProductProms.Columns.Add("ProductId", Type.GetType("System.Int32"));
+                dtProductProms.PrimaryKey = new DataColumn[] { dtProductProms.Columns["PKProductPromId"] };
 
+                dtSaleProms.Columns.Add("PKSalePromId", Type.GetType("System.Int32"));
                 dtSaleProms.Columns.Add("SiteId", Type.GetType("System.Int32"));
                 dtSaleProms.Columns.Add("SaleTimeStamp", Type.GetType("System.DateTime"));
                 dtSaleProms.Columns.Add("POSId", Type.GetType("System.String"));
@@ -67,7 +77,10 @@ namespace RequestMapper.Helpers
                 dtSaleProms.Columns.Add("SalePromId", Type.GetType("System.String"));
                 dtSaleProms.Columns.Add("SalePromValueInc", Type.GetType("System.Decimal"));
                 dtSaleProms.Columns.Add("LoyaltyProgramName", Type.GetType("System.String"));
+                dtSaleProms.Columns.Add("SalesTransactionId", Type.GetType("System.Int32"));
+                dtSaleProms.PrimaryKey = new DataColumn[] { dtSaleProms.Columns["PKSalePromId"] };
 
+                dtTenders.Columns.Add("TenderId", Type.GetType("System.Int32"));
                 dtTenders.Columns.Add("SiteId", Type.GetType("System.Int32"));
                 dtTenders.Columns.Add("SaleTimeStamp", Type.GetType("System.DateTime"));
                 dtTenders.Columns.Add("POSId", Type.GetType("System.String"));
@@ -80,6 +93,8 @@ namespace RequestMapper.Helpers
                 dtTenders.Columns.Add("ShopperMobileNumber", Type.GetType("System.String"));
                 dtTenders.Columns.Add("LoyaltyEarned", Type.GetType("System.Decimal"));
                 dtTenders.Columns.Add("LoyaltyRedeemed", Type.GetType("System.Decimal"));
+                dtTenders.Columns.Add("SalesTransactionId", Type.GetType("System.Int32"));
+                dtTenders.PrimaryKey = new DataColumn[] { dtTenders.Columns["TenderId"] };
 
                 return true;
             }
@@ -95,10 +110,16 @@ namespace RequestMapper.Helpers
         {
             try
             {
+                int salesTransactionIndex = 1;
+                int productIndex = 1;
+                int productPromIndex = 1;
+                int salePromIndex = 1;
+                int tenderIndex = 1;
                 foreach (var tran in requestJson.SalesTransactions.SalesTransactionDetails)
                 {
                     DataRow drSalesTransactions = dtSalesTransactions.NewRow();
 
+                    drSalesTransactions["SalesTransactionId"] = salesTransactionIndex;
                     drSalesTransactions["SiteId"] = requestJson.SalesTransactions.Site.SiteId;
                     drSalesTransactions["SaleTimeStamp"] = tran.SaleTimeStamp;
                     drSalesTransactions["POSId"] = tran.POSId;
@@ -119,6 +140,7 @@ namespace RequestMapper.Helpers
                         foreach (var prod in tran.Products)
                         {
                             DataRow drProducts = dtProducts.NewRow();
+                            drProducts["ProductId"] = productIndex;
                             drProducts["SiteId"] = requestJson.SalesTransactions.Site.SiteId;
                             drProducts["SaleTimeStamp"] = tran.SaleTimeStamp;
                             drProducts["POSId"] = tran.POSId;
@@ -138,6 +160,7 @@ namespace RequestMapper.Helpers
                             drProducts["CostValueEx"] = prod.CostValueEx;
                             drProducts["CostGSTRate"] = prod.CostGSTRate;
                             drProducts["LoyaltyPoints"] = prod.LoyaltyPoints ?? (object)DBNull.Value;
+                            drProducts["SalesTransactionId"] = salesTransactionIndex;
                             dtProducts.Rows.Add(drProducts);
 
                             if (prod.ProductProms != null && prod.ProductProms.Count > 0)
@@ -145,6 +168,7 @@ namespace RequestMapper.Helpers
                                 foreach (var prodProm in prod.ProductProms)
                                 {
                                     DataRow drProductProms = dtProductProms.NewRow();
+                                    drProductProms["PKProductPromId"] = productPromIndex;
                                     drProductProms["SiteId"] = requestJson.SalesTransactions.Site.SiteId;
                                     drProductProms["SaleTimeStamp"] = tran.SaleTimeStamp;
                                     drProductProms["POSId"] = tran.POSId;
@@ -157,13 +181,16 @@ namespace RequestMapper.Helpers
                                     drProductProms["ProductPromId"] = prodProm.ProductPromId ?? productPromId;
                                     drProductProms["ProductPromValueInc"] = prodProm.ProductPromValueInc;
                                     drProductProms["LoyaltyProgramName"] = prodProm.LoyaltyProgramName;
+                                    drProductProms["ProductId"] = productIndex;
                                     dtProductProms.Rows.Add(drProductProms);
+                                    productPromIndex += 1;
                                 }
                             }
                             else
                             {
                                 //
                             }
+                            productIndex += 1;
                         }
                     }
                     else
@@ -177,6 +204,7 @@ namespace RequestMapper.Helpers
                         foreach (var saleProm in tran.SaleProms)
                         {
                             DataRow drSaleProms = dtSaleProms.NewRow();
+                            drSaleProms["PKSalePromId"] = salePromIndex;
                             drSaleProms["SiteId"] = requestJson.SalesTransactions.Site.SiteId;
                             drSaleProms["SaleTimeStamp"] = tran.SaleTimeStamp;
                             drSaleProms["POSId"] = tran.POSId;
@@ -186,7 +214,9 @@ namespace RequestMapper.Helpers
                             drSaleProms["SalePromId"] = saleProm.SalePromId;
                             drSaleProms["SalePromValueInc"] = saleProm.SalePromValueInc;
                             drSaleProms["LoyaltyProgramName"] = saleProm.LoyaltyProgramName;
+                            drSaleProms["SalesTransactionId"] = salesTransactionIndex;
                             dtSaleProms.Rows.Add(drSaleProms);
+                            salePromIndex += 1;
                         }
                     }
                     else
@@ -199,6 +229,7 @@ namespace RequestMapper.Helpers
                         foreach (var tender in tran.Tenders)
                         {
                             DataRow drTenders = dtTenders.NewRow();
+                            drTenders["TenderId"] = tenderIndex;
                             drTenders["SiteId"] = requestJson.SalesTransactions.Site.SiteId;
                             drTenders["SaleTimeStamp"] = tran.SaleTimeStamp;
                             drTenders["POSId"] = tran.POSId;
@@ -213,13 +244,16 @@ namespace RequestMapper.Helpers
                             //need code review here for next 2 lines
                             drTenders["LoyaltyEarned"] = tender.LoyaltyEarned ?? (object)DBNull.Value;
                             drTenders["LoyaltyRedeemed"] = tender.LoyaltyRedeemed ?? (object)DBNull.Value;
+                            drTenders["SalesTransactionId"] = salesTransactionIndex;
                             dtTenders.Rows.Add(drTenders);
+                            tenderIndex += 1;
                         }
                     }
                     else
                     {
                         //
                     }
+                    salesTransactionIndex += 1;
                 }
 
                 return true;
@@ -230,10 +264,15 @@ namespace RequestMapper.Helpers
             }
         }
 
-        public static Boolean CreateSalesTotalsDatatables(ref DataTable dtSite, ref DataTable dtDepartments, ref DataTable dtSalesTotals)
+        public static Boolean CreateSalesTotalsDatatables(ref DataTable dtDocumentTransaction, ref DataTable dtSite, ref DataTable dtDepartments, ref DataTable dtSalesTotals)
         {
             try
             {
+                dtDocumentTransaction.Columns.Add("CorrelationId", Type.GetType("System.String"));
+                dtDocumentTransaction.Columns.Add("TransactionID", Type.GetType("System.String"));
+                dtDocumentTransaction.Columns.Add("TransactionIDType", Type.GetType("System.String"));
+                dtDocumentTransaction.Columns.Add("TransactionTimeStamp", Type.GetType("System.DateTime"));
+
                 dtSite.Columns.Add("SiteId", Type.GetType("System.Int32"));
                 dtSite.Columns.Add("SiteName", Type.GetType("System.String"));
                 dtSite.Columns.Add("ABN", Type.GetType("System.String"));
@@ -272,10 +311,37 @@ namespace RequestMapper.Helpers
             }
         }
 
-        public static Boolean UpdateSalesTotalsDatatables(ref DataTable dtSite, ref DataTable dtDepartments, ref DataTable dtSalesTotals, REQSalesTotals requestJson)
+        public static Boolean UpdateSalesTotalsDatatables(ref DataTable dtDocumentTransaction, ref DataTable dtSite, ref DataTable dtDepartments, ref DataTable dtSalesTotals, REQSalesTotals requestJson)
         {
             try
             {
+                //implement parallel execution
+                //Parallel.Invoke(
+                //    () => { }
+                //    );
+                //Parallel.Invoke does not work with ref type variables
+
+                //Task.Run(() =>
+                //{
+    
+                //});
+                //Task.Run take lambda expressions, and ref type variables are not allowd in lambda expressions
+
+                //Any other way for parallel execution?
+                if (requestJson.DocumentHeader.Transaction != null)
+                {
+                    DataRow drDocumentTransaction = dtDocumentTransaction.NewRow();
+                    drDocumentTransaction["CorrelationId"] = requestJson.DocumentHeader.Transaction.CorrelationId;
+                    drDocumentTransaction["TransactionID"] = requestJson.DocumentHeader.Transaction.TransactionID;
+                    drDocumentTransaction["TransactionIDType"] = requestJson.DocumentHeader.Transaction.TransactionIDType;
+                    drDocumentTransaction["TransactionTimeStamp"] = requestJson.DocumentHeader.Transaction.TransactionTimeStamp;
+                    dtDocumentTransaction.Rows.Add(drDocumentTransaction);
+                }
+                else
+                {
+                    //
+                }
+
                 if (requestJson.SalesTotals.Site != null)
                 {
                     DataRow drSite = dtSite.NewRow();

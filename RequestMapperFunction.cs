@@ -16,6 +16,8 @@ using System.IO.Compression;
 using System.Text;
 using System.Net.Http.Json;
 using Azure.Messaging.ServiceBus;
+using System.ComponentModel;
+using Azure.Core;
 
 namespace RequestMapper
 {
@@ -33,11 +35,17 @@ namespace RequestMapper
         [Function("s1a")]
         public async Task<IActionResult> SalesTransactionsRequestMapping([HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequest req)
         {
+            Stopwatch swTotal = new Stopwatch();
+            swTotal.Start();
             #region variables
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
             REQSalesTransactions requestJson = JsonConvert.DeserializeObject<REQSalesTransactions>(requestBody);
             string requestId = req.Headers["RequestId"];
             requestJson.DocumentHeader.Transaction.CorrelationId = requestId;
+            string correlationId = requestId;
+            string transactionId = requestJson.DocumentHeader.Transaction.TransactionID;
+            string transactionIDType = requestJson.DocumentHeader.Transaction.TransactionIDType;
+            DateTime transactionTimeStamp = requestJson.DocumentHeader.Transaction.TransactionTimeStamp;
             //this productPromId should be present in requestbody - SalesTransactions/SalesTransactionDetails/Products/ProductProms/ProductPromId
             //but for few requests, it is not present. so gerenating it here because it is not null field
             string productPromId = requestId.Substring(0, 32);
@@ -46,7 +54,9 @@ namespace RequestMapper
             try
             {
                 KeyVaultHelper.ReloadAllSecrets(_config);
-                DataTable dtSite = new DataTable("Site");
+
+                Stopwatch swDatatables = new Stopwatch();
+                swDatatables.Start();
                 DataTable dtSalesTransactions = new DataTable("SalesTransactions");
                 DataTable dtProducts = new DataTable("Products");
                 DataTable dtProductProms = new DataTable("ProductProms");
@@ -59,11 +69,35 @@ namespace RequestMapper
                 Boolean result = MappingHelper.UpdateSalesTransactionsDatatables(ref dtSalesTransactions, 
                     ref dtProducts, ref dtProductProms, ref dtSaleProms, ref dtTenders, requestJson, productPromId);
 
-                Dictionary<string, Object> parameters = DatabaseHelper.PrepareSalesTransactionsSPParameters(
-                    dtSalesTransactions, dtProducts, dtProductProms, dtSaleProms, dtTenders);
-                var successMessage = DatabaseHelper.ExecuteStoredProcedure("spInsertSalesTransactions", parameters);
+                swDatatables.Stop();
+                TimeSpan tsDatatables = swDatatables.Elapsed;
 
-                return new OkObjectResult(successMessage);
+                Stopwatch swDatabase = new Stopwatch();
+                swDatabase.Start();
+
+                Dictionary<string, Object> parameters = DatabaseHelper.PrepareSalesTransactionsSPParameters(
+                    dtSalesTransactions, dtProducts, dtProductProms, dtSaleProms, dtTenders,
+                    correlationId, transactionId, transactionIDType, transactionTimeStamp);
+                var successMessage = DatabaseHelper.ExecuteStoredProcedure("spAddSalesTransactionBasketInsertV2", parameters);
+
+                swDatabase.Stop();
+                TimeSpan tsDatabase = swDatabase.Elapsed;
+
+                swTotal.Stop();
+                TimeSpan tsTotal = swTotal.Elapsed;
+
+                var response = new
+                {
+                    RequestBodySize = req.Headers["RequestBodySize"][0],
+                    Endpoint = req.Headers["Endpoint"][0],
+                    RequestId = req.Headers["RequestId"][0],
+                    Message = successMessage,
+                    TimeToCreateDatatables = tsDatatables,
+                    TimeToInsertDataIntoDatabase = tsDatabase,
+                    TotalTime = tsTotal,
+                };
+
+                return new OkObjectResult(response);
             }
             catch (Exception ex)
             {
@@ -92,13 +126,14 @@ namespace RequestMapper
                 Stopwatch swDataTable = Stopwatch.StartNew();
                 swDataTable.Start();
 
+                DataTable dtDocumentTransaction = new DataTable("DocumentTransaction");
                 DataTable dtSite = new DataTable("Site");
                 DataTable dtDepartments = new DataTable("Depts");
                 DataTable dtSalesTotals = new DataTable("SalesTotals");
 
-                Boolean res = MappingHelper.CreateSalesTotalsDatatables(ref dtSite, ref dtDepartments, ref dtSalesTotals);
+                Boolean res = MappingHelper.CreateSalesTotalsDatatables(ref dtDocumentTransaction, ref dtSite, ref dtDepartments, ref dtSalesTotals);
 
-                Boolean result = MappingHelper.UpdateSalesTotalsDatatables(ref dtSite, ref dtDepartments, ref dtSalesTotals, requestJson);
+                Boolean result = MappingHelper.UpdateSalesTotalsDatatables(ref dtDocumentTransaction, ref dtSite, ref dtDepartments, ref dtSalesTotals, requestJson);
 
                 swDataTable.Stop();
                 TimeSpan tsDataTables = swDataTable.Elapsed;
@@ -107,7 +142,7 @@ namespace RequestMapper
                 swDatabase.Start();
 
                 Dictionary<string, Object> parameters = DatabaseHelper.PrepareSalesTotalsSPParameters(
-                    dtSite, dtDepartments, dtSalesTotals);
+                    dtDocumentTransaction, dtSite, dtDepartments, dtSalesTotals);
                 var successMessage = DatabaseHelper.ExecuteStoredProcedure("spInsertSalesTotals2", parameters);
 
                 swDatabase.Stop();
@@ -121,14 +156,22 @@ namespace RequestMapper
                     SuccessMessage = successMessage,
                     TimeToCreateDatatables = tsDataTables,
                     TimeToInsertDataInDatabase = tsDatabase,
-                    TotalTime = tsTotal
+                    TotalTime = tsTotal,
+                    Endpoint = req.Headers["Endpoint"][0],
+                    RequestId = req.Headers["RequestId"][0],
+                    Message = successMessage,
                 };
                 return new OkObjectResult(response);
             }
             catch (Exception ex)
             {
                 _logger.LogInformation(ex.Message + " / " + ex.StackTrace);
-                return new BadRequestObjectResult(ex.Message + " / " + ex.StackTrace);
+                var response = new 
+                {
+                    Message = "Failure",
+                    Error = ex.Message + " / " + ex.StackTrace
+                };
+                return new BadRequestObjectResult(response);
             }
 
         }
@@ -166,75 +209,80 @@ namespace RequestMapper
 
                 REQSalesTransactions requestJson = JsonConvert.DeserializeObject<REQSalesTransactions>(unzippedString);
                 requestJson.DocumentHeader.Transaction.CorrelationId = requestId;
+                string correlationId = requestId;
+                string transactionId = requestJson.DocumentHeader.Transaction.TransactionID;
+                string transactionIDType = requestJson.DocumentHeader.Transaction.TransactionIDType;
+                DateTime transactionTimeStamp = requestJson.DocumentHeader.Transaction.TransactionTimeStamp;
 
-                Stopwatch swUploadToBlob = new Stopwatch();
-                swUploadToBlob.Start();
+                //Stopwatch swUploadToBlob = new Stopwatch();
+                //swUploadToBlob.Start();
 
-                int requesterSiteId = requestJson.SalesTransactions.Site.SiteId;
-                var blobName = $"{requestId}.json";
-                CloudStorageAccount storageAccount = CloudStorageAccount.Parse(KeyVaultHelper.BlobConnectionString);
-                CloudBlobClient blobClient = storageAccount.CreateCloudBlobClient();
-                CloudBlobContainer container = blobClient.GetContainerReference("function-files");
-                await container.CreateIfNotExistsAsync();
-                CloudBlockBlob blob = container.GetBlockBlobReference(blobName);
+                //int requesterSiteId = requestJson.SalesTransactions.Site.SiteId;
+                //var blobName = $"{requestId}.json";
+                //CloudStorageAccount storageAccount = CloudStorageAccount.Parse(KeyVaultHelper.BlobConnectionString);
+                //CloudBlobClient blobClient = storageAccount.CreateCloudBlobClient();
+                //CloudBlobContainer container = blobClient.GetContainerReference("function-files");
+                //await container.CreateIfNotExistsAsync();
+                //CloudBlockBlob blob = container.GetBlockBlobReference(blobName);
 
-                requestBytes = Encoding.UTF8.GetBytes(unzippedString);
-                blob.UploadFromByteArrayAsync(requestBytes, 0, requestBytes.Length);
-                while (true)
-                {
-                    if (await blob.ExistsAsync())
-                    {
-                        blobUrl = blob.Uri.AbsoluteUri;
-                        break;
-                    }
-                }
-                swUploadToBlob.Stop();
-                TimeSpan tsUploadToBlob = swUploadToBlob.Elapsed;
+                //requestBytes = Encoding.UTF8.GetBytes(unzippedString);
+                //blob.UploadFromByteArrayAsync(requestBytes, 0, requestBytes.Length);
+                //while (true)
+                //{
+                //    if (await blob.ExistsAsync())
+                //    {
+                //        blobUrl = blob.Uri.AbsoluteUri;
+                //        break;
+                //    }
+                //}
+                //swUploadToBlob.Stop();
+                //TimeSpan tsUploadToBlob = swUploadToBlob.Elapsed;
 
-                Stopwatch swSendMessage = new Stopwatch();
-                swSendMessage.Start();
+                //Stopwatch swSendMessage = new Stopwatch();
+                //swSendMessage.Start();
 
-                var client = new ServiceBusClient(KeyVaultHelper.ServiceBusConnectionString);
-                ServiceBusSender sender = client.CreateSender("sbq-request-mapper");
+                //var client = new ServiceBusClient(KeyVaultHelper.ServiceBusConnectionString);
+                //ServiceBusSender sender = client.CreateSender("sbq-request-mapper");
 
-                var message = new ServiceBusMessage();
-                message.ApplicationProperties.Add("RequestBlobFilePath", blobUrl);
-                message.ApplicationProperties.Add("RequesterSiteID", requesterSiteId);
-                message.ApplicationProperties.Add("RequestID", requestId);
+                //var message = new ServiceBusMessage();
+                //message.ApplicationProperties.Add("RequestBlobFilePath", blobUrl);
+                //message.ApplicationProperties.Add("RequesterSiteID", requesterSiteId);
+                //message.ApplicationProperties.Add("RequestID", requestId);
 
-                await sender.SendMessageAsync(message);
+                //await sender.SendMessageAsync(message);
 
-                swSendMessage.Stop();
-                TimeSpan tsSendMessage = swSendMessage.Elapsed;
+                //swSendMessage.Stop();
+                //TimeSpan tsSendMessage = swSendMessage.Elapsed;
 
-                //Stopwatch swDatatables = new Stopwatch();
-                //swDatatables.Start();
+                Stopwatch swDatatables = new Stopwatch();
+                swDatatables.Start();
 
-                //DataTable dtSite = new DataTable("Site");
-                //DataTable dtSalesTransactions = new DataTable("SalesTransactions");
-                //DataTable dtProducts = new DataTable("Products");
-                //DataTable dtProductProms = new DataTable("ProductProms");
-                //DataTable dtSaleProms = new DataTable("SaleProms");
-                //DataTable dtTenders = new DataTable("Tenders");
+                DataTable dtSite = new DataTable("Site");
+                DataTable dtSalesTransactions = new DataTable("SalesTransactions");
+                DataTable dtProducts = new DataTable("Products");
+                DataTable dtProductProms = new DataTable("ProductProms");
+                DataTable dtSaleProms = new DataTable("SaleProms");
+                DataTable dtTenders = new DataTable("Tenders");
 
-                //Boolean res = MappingHelper.CreateSalesTransactionsDatatables(ref dtSalesTransactions,
-                //    ref dtProducts, ref dtProductProms, ref dtSaleProms, ref dtTenders);
+                Boolean res = MappingHelper.CreateSalesTransactionsDatatables(ref dtSalesTransactions,
+                    ref dtProducts, ref dtProductProms, ref dtSaleProms, ref dtTenders);
 
-                //Boolean result = MappingHelper.UpdateSalesTransactionsDatatables(ref dtSalesTransactions,
-                //    ref dtProducts, ref dtProductProms, ref dtSaleProms, ref dtTenders, requestJson, productPromId);
+                Boolean result = MappingHelper.UpdateSalesTransactionsDatatables(ref dtSalesTransactions,
+                    ref dtProducts, ref dtProductProms, ref dtSaleProms, ref dtTenders, requestJson, productPromId);
 
-                //swDatatables.Stop();
-                //TimeSpan tsDatatables = swDatatables.Elapsed;
+                swDatatables.Stop();
+                TimeSpan tsDatatables = swDatatables.Elapsed;
 
-                //Stopwatch swDatabase = new Stopwatch();
-                //swDatabase.Start();
+                Stopwatch swDatabase = new Stopwatch();
+                swDatabase.Start();
 
-                //Dictionary<string, Object> parameters = DatabaseHelper.PrepareSalesTransactionsSPParameters(
-                //    dtSalesTransactions, dtProducts, dtProductProms, dtSaleProms, dtTenders);
-                //var successMessage = DatabaseHelper.ExecuteStoredProcedure("spInsertSalesTransactions", parameters);
+                Dictionary<string, Object> parameters = DatabaseHelper.PrepareSalesTransactionsSPParameters(
+                    dtSalesTransactions, dtProducts, dtProductProms, dtSaleProms, dtTenders,
+                    correlationId, transactionId, transactionIDType, transactionTimeStamp);
+                var successMessage = DatabaseHelper.ExecuteStoredProcedure("spAddSalesTransactionBasketInsertV2", parameters);
 
-                //swDatabase.Stop();
-                //TimeSpan tsDatabase = swDatabase.Elapsed;
+                swDatabase.Stop();
+                TimeSpan tsDatabase = swDatabase.Elapsed;
 
                 swTotal.Stop();
                 TimeSpan tsTotal = swTotal.Elapsed;
@@ -242,8 +290,9 @@ namespace RequestMapper
                 {
                     BlobFileUrl = blobUrl,
                     TimeForUnzipping = tsUnzipFile,
-                    TimeToUploadBlob = tsUploadToBlob,
-                    TimeToSendMessage = tsSendMessage,
+                    //TimeToUploadBlob = tsUploadToBlob,
+                    TimeToCreateDatatables = tsDatatables,
+                    TimeToInsertDataIntoDatabase = tsDatabase,
                     TotalTime = tsTotal
                 };
                 return new OkObjectResult(response);
@@ -287,13 +336,20 @@ namespace RequestMapper
         {
             try
             {
+                KeyVaultHelper.ReloadAllSecrets(_config);
                 _logger.LogInformation(req.ToString());
+                string requestId = req.Headers["RequestId"];
+                string endpoint = req.Headers["Endpoint"][0];
+                string requestBodySize = req.Headers["RequestBodySize"][0];
+                Dictionary<string, Object> parameters = DatabaseHelper.PrepareAuditParameters(
+                    requestId, "Dummy Function", endpoint+" / "+requestBodySize);
+                DatabaseHelper.ExecStoredProcedure("spInsertAuditLog", parameters);
                 var response = new
                 {
-                    Size = req.Body.Length,
+                    RequestBodySize = req.Headers["RequestBodySize"][0],
+                    Endpoint = req.Headers["Endpoint"][0],
                     RequestId = req.Headers["RequestId"][0],
-                    RequestBodySize = req.Headers["RequestBodySize"],
-                    Message = "Dummy message - Request forwarded to dummy endpoint",
+                    Message = "Dummy message - redirected to secondary endpoint",
                 };
                 return new OkObjectResult(response);
             }
